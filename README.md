@@ -1,4 +1,3 @@
-# sfguide-tasty-bytes-snowpark-101-for-data-science
 # Tasty Bytes - Snowpark 101 for Data Science
 
 ## Overview
