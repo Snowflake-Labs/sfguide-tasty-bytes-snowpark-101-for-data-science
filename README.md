@@ -6,4 +6,4 @@ In this Snowpark 101 for Data Science guide, you will be help the fictitious foo
 
 ## Step-By-Step Guide
 
-For prerequisites, environment setup, step-by-step guide and instructions, please refer to the [QuickStart Guide](https://quickstarts.snowflake.com/guide/tasty_bytes_snowindex.html).
+For prerequisites, environment setup, step-by-step guide and instructions, please refer to the [QuickStart Guide](https://quickstarts.snowflake.com/guide/tasty_bytes_snowpark_101_for_data_science/index.html).
