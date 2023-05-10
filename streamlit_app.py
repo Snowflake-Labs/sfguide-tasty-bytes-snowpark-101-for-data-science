@@ -1,5 +1,3 @@
-# streamlit_app.py
-
 """
 ****************************************************************************************************
   __               _   _           _       
@@ -22,7 +20,7 @@ Description:
 SUMMARY OF CHANGES
 Date(yyyy-mm-dd)    Author              Comments
 ------------------- ------------------- ------------------------------------------------------------
-2023-05-12          Marie Coolsaet           Initial Release
+2023-05-12          Marie Coolsaet           Initial Quickstart Release
 ****************************************************************************************************
 
 """
@@ -82,7 +80,7 @@ session = init_connection()
 @st.cache_data
 def get_cities(_session):
     return (
-        _session.table("frostbyte_tasty_bytes_dev.analytics.shift_sales")
+        _session.table("frostbyte_tasty_bytes_dev.analytics.shift_sales_v")
         .select("city")
         .distinct()
         .sort("city")
