@@ -47,7 +47,7 @@ st.header("Predicted Shift Sales by Location")
 st.subheader("Data-driven recommendations for food truck drivers.")
 
 
-# Use st.cache_data to only rerun every 10 min.
+# Refresh Snowflake session after 10 minutes
 @st.cache_resource(ttl=3600)
 def init_connection():
     # Get account credentials from a json file
