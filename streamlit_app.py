@@ -10,7 +10,7 @@
                              |___/         
 Quickstart: Tasty Bytes - Snowpark 101 for Data Science
 Script:       streamlit_app.py    
-Create Date:  2023-05-12 
+Create Date:  2023-05-19 
 Author:       Marie Coolsaet
 Copyright(c): 2023 Snowflake Inc. All rights reserved.
 ****************************************************************************************************
@@ -20,7 +20,7 @@ Description:
 SUMMARY OF CHANGES
 Date(yyyy-mm-dd)    Author              Comments
 ------------------- ------------------- ------------------------------------------------------------
-2023-05-12          Marie Coolsaet           Initial Quickstart Release
+2023-05-19          Marie Coolsaet           Initial Quickstart Release
 ****************************************************************************************************
 
 """
@@ -47,7 +47,7 @@ st.header("Predicted Shift Sales by Location")
 st.subheader("Data-driven recommendations for food truck drivers.")
 
 
-# Use st.cache_data to only rerun when the query changes or after 10 min.
+# Use st.cache_data to only rerun every 10 min.
 @st.cache_resource(ttl=3600)
 def init_connection():
     # Get account credentials from a json file
@@ -75,27 +75,18 @@ def init_connection():
 # Connect to Snowflake
 session = init_connection()
 
-
-# Get a list of cities
-@st.cache_data
-def get_cities(_session):
-    return (
-        _session.table("frostbyte_tasty_bytes_dev.analytics.shift_sales_v")
-        .select("city")
-        .distinct()
-        .sort("city")
-        .to_pandas()
-    )
-
-
-cities = get_cities(session)
-
 # Create input widgets for cities and shift
 with st.container():
     col1, col2 = st.columns(2)
     with col1:
         # Drop down to select city
-        city = st.selectbox("City:", cities)
+        city = st.selectbox(
+            "City:",
+            session.table("frostbyte_tasty_bytes_dev.analytics.shift_sales_v")
+            .select("city")
+            .distinct()
+            .sort("city"),
+        )
 
     with col2:
         # Select AM/PM Shift
@@ -103,16 +94,15 @@ with st.container():
 
 
 # Get predictions for city and shift time
-@st.cache_data
-def get_predictions(_session, city, shift):
+def get_predictions(city, shift):
     # Get data and filter by city and shift
-    snowpark_df = _session.table(
-        "frostbyte_tasty_bytes_dev.analytics.shift_sales"
+    snowpark_df = session.table(
+        "frostbyte_tasty_bytes_dev.analytics.shift_sales_v"
     ).filter((F.col("shift") == shift) & (F.col("city") == city))
 
     # Get rolling average
     window_by_location_all_days = (
-        Window.partition_by("location_id", "shift")
+        Window.partition_by("location_id")
         .order_by("date")
         .rows_between(Window.UNBOUNDED_PRECEDING, Window.CURRENT_ROW - 1)
     )
@@ -120,7 +110,7 @@ def get_predictions(_session, city, shift):
     snowpark_df = snowpark_df.with_column(
         "avg_location_shift_sales",
         F.avg("shift_sales").over(window_by_location_all_days),
-    )
+    ).cache_result()
 
     # Get tomorrow's date
     date_tomorrow = (
@@ -166,7 +156,8 @@ def get_predictions(_session, city, shift):
 # Update predictions and plot when the "Update" button is clicked
 if st.button("Update"):
     # Get predictions
-    predictions = get_predictions(session, city, shift)
+    with st.spinner("Getting predictions..."):
+        predictions = get_predictions(city, shift)
 
     # Plot on a map
     predictions["PREDICTED_SHIFT_SALES"].clip(0, inplace=True)
