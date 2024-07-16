@@ -20,20 +20,34 @@ Description:
 SUMMARY OF CHANGES
 Date(yyyy-mm-dd)    Author              Comments
 ------------------- ------------------- ------------------------------------------------------------
-2023-05-19          Marie Coolsaet           Initial Quickstart Release
+2023-05-19          Marie Coolsaet      Initial Quickstart Release
+2024-07-03          Katy Haynie         Updated the map to work in SiS, use model in Registry
 ****************************************************************************************************
 
 """
+
+# BEFORE YOU BEGIN 
+# Add the following packages to the Packages dropdown at the top of the UI:
+# plotly, matplotlib, pydeck, snowflake-ml-python, nbformat
 
 # Import Python packages
 import streamlit as st
 import plotly.express as px
 import json
+import pydeck as pdk
+import math
 
 # Import Snowflake modules
 from snowflake.snowpark import Session
 import snowflake.snowpark.functions as F
 from snowflake.snowpark import Window
+from snowflake.ml.registry import Registry
+from snowflake.ml.modeling.metrics import (
+    mean_squared_error,
+    mean_absolute_error,
+    mean_absolute_percentage_error,
+)
+from snowflake.snowpark.context import get_active_session
 
 # Set Streamlit page config
 st.set_page_config(
@@ -47,33 +61,8 @@ st.header("Predicted Shift Sales by Location")
 st.subheader("Data-driven recommendations for food truck drivers.")
 
 
-# Refresh Snowflake session after 60 minutes
-@st.cache_resource(ttl=3600)
-def init_connection():
-    # Get account credentials from a json file
-    with open("data_scientist_auth.json") as f:
-        data = json.load(f)
-        username = data["username"]
-        password = data["password"]
-        account = data["account"]
-
-    # Specify connection parameters
-    connection_parameters = {
-        "account": account,
-        "user": username,
-        "password": password,
-        "role": "accountadmin",
-        "warehouse": "tasty_dsci_wh",
-        "database": "frostbyte_tasty_bytes_dev",
-        "schema": "analytics",
-    }
-
-    # Create Snowpark session
-    return Session.builder.configs(connection_parameters).create()
-
-
 # Connect to Snowflake
-session = init_connection()
+session = get_active_session()
 
 # Create input widgets for cities and shift
 with st.container():
@@ -120,34 +109,14 @@ def get_predictions(city, shift):
     )
 
     # Filter to tomorrow's date
-    snowpark_df = snowpark_df.filter(F.col("date") == date_tomorrow)
+    snowpark_df = snowpark_df.filter(F.col("date") == date_tomorrow).drop("date")
 
-    # Impute
-    snowpark_df = snowpark_df.fillna(value=0, subset=["avg_location_shift_sales"])
-
-    # Encode
-    snowpark_df = snowpark_df.with_column("shift", F.iff(F.col("shift") == "AM", 1, 0))
-
-    # Define feature columns
-    feature_cols = [
-        "MONTH",
-        "DAY_OF_WEEK",
-        "LATITUDE",
-        "LONGITUDE",
-        "CITY_POPULATION",
-        "AVG_LOCATION_SHIFT_SALES",
-        "SHIFT",
-    ]
+    # Grab model from model registry
+    reg = Registry(session)
 
     # Call the inference user-defined function
-    snowpark_df = snowpark_df.select(
-        "location_id",
-        "latitude",
-        "longitude",
-        "avg_location_shift_sales",
-        F.call_udf(
-            "udf_linreg_predict_location_sales", [F.col(c) for c in feature_cols]
-        ).alias("predicted_shift_sales"),
+    snowpark_df = reg.get_model("SHIFT_SALES_FORECASTER").default.run(
+        X=snowpark_df, function_name="predict"
     )
 
     return snowpark_df.to_pandas()
@@ -160,17 +129,39 @@ if st.button("Update"):
         predictions = get_predictions(city, shift)
 
     # Plot on a map
-    predictions["PREDICTED_SHIFT_SALES"].clip(0, inplace=True)
-    fig = px.scatter_mapbox(
-        predictions,
-        lat="LATITUDE",
-        lon="LONGITUDE",
-        hover_name="LOCATION_ID",
-        size="PREDICTED_SHIFT_SALES",
-        color="PREDICTED_SHIFT_SALES",
-        zoom=8,
-        height=800,
-        width=1000,
+    predictions["FORECASTED_SHIFT_SALES"].clip(0, inplace=True)
+    predictions["radius"] = predictions["FORECASTED_SHIFT_SALES"].apply(
+        lambda x: math.sqrt(x / 100)
     )
-    fig.update_layout(mapbox_style="open-street-map")
-    st.plotly_chart(fig, use_container_width=True)
+
+    # map the neighborhood
+    view_state = pdk.ViewState(
+        latitude=predictions["LATITUDE"].mean(),
+        longitude=predictions["LONGITUDE"].mean(),
+        zoom=10,
+        bearing=0,
+        pitch=0,
+    )
+
+    st.pydeck_chart(
+        pdk.Deck(
+            map_style=None,
+            initial_view_state=view_state,
+            layers=[
+                pdk.Layer(
+                    "ScatterplotLayer",
+                    data=predictions,
+                    get_position="[LONGITUDE, LATITUDE]",
+                    get_radius="FORECASTED_SHIFT_SALES",
+                    get_fill_color="[128,0,128,25]",
+                    pickable=True,
+                ),
+            ],
+            tooltip={
+                "text": "{LOCATION_NAME}\n predicted shift sales is {FORECASTED_SHIFT_SALES} and\n location id is {LOCATION_ID}"
+            },
+        )
+    )
+
+    # Output a table of the predictions
+    st.write(predictions)
